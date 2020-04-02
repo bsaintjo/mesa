@@ -5,6 +5,7 @@ import argparse
 from . import quantMESA as quant
 from . import star_junc_to_bed as sjb
 from . import pairwise_fisher as pf
+from . import pairwise_bayes as pb
 from . import compareSampleSets as css
 from . import clusterMESA as cm
 from . import findOutliers as fo
@@ -38,6 +39,7 @@ def main():
     add_cmd("cluster", cm.add_parser, cm.run_with, subparsers)
     add_cmd("compare_sample_sets", css.add_parser, css.run_with, subparsers)
     add_cmd("pairwise", pf.add_parser, pf.run_with, subparsers)
+    add_cmd("pairwise_bayes", pb.add_parser, pb.run_with, subparsers)
     add_cmd("findOutliers", fo.add_parser, fo.run_with, subparsers)
 
     args = parser.parse_args()

@@ -161,6 +161,7 @@ setup(
             "matplotlib",
             "seaborn",
             "umap-learn",
+            "pymc3"
             ],  # Optional
 
     # List additional groups of dependencies here (e.g. development
