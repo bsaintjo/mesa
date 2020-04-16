@@ -30,7 +30,7 @@ def get_cluster(fname):
         for i in fin:
             left, right = i.rstrip().split()
             mxes = right.split(",")
-            data[left] = mxes + [left]
+            data[left] = mxes
     return data
 
 
@@ -42,21 +42,16 @@ def add_parser(parser):
         help="Compressed NPZ formatted Inclusion count matrix from quantMESA.",
     )
     parser.add_argument(
-        "-c", "--clusters", type=str, required=True, help="Clusters table.",
+        "-c",
+        "--clusters",
+        type=str,
+        required=True,
+        help="Clusters table.",
     )
-    parser.add_argument(
-        "--chi2",
-        action="store_true",
-        default=False,
-        help="Use X^2 instead of fishers. Quicker, not as sensitive.",
-    )
-    parser.add_argument(
-        "--no-correction",
-        action="store_true",
-        default=False,
-        help="Output raw p-values instead of corrected ones. Correction is "
-        "done via Benjamini-Hochberg",
-    )
+    parser.add_argument("-o",
+                        "--output",
+                        required=True,
+                        help="Output file name")
 
 
 def run_with(args):
@@ -78,57 +73,80 @@ def run_with(args):
             comparisons.add(tuple(sorted([i, j])))
 
     # do the math
-    comps = list(comparisons)
+    # comps = list(comparisons)
+    # comps_to_idx = {comp: idx for idx, comp in enumerate(comps)}
 
     inclusion_total_counts = []
     for n, vals in enumerate(matrix):
         event_id = rows[n]
         mxes = matrix[np.isin(rows, clusters[event_id])]
 
-        inc = vals
-        exc = np.sum(mxes, axis=0)
+        incl = vals
+        excl = np.sum(mxes, axis=0)
 
-        for i in comps:
-            left, right = i
-            inc_total = inc[left] + inc[right]
-            exc_total = exc[left] + exc[right]
-            data_row = (event_id, i, inc[left], inc_total, exc[left],
-                        exc_total)
+        for i in range(len(cols)):
+            # comp_idx = comps_to_idx[i]
+            left = i
+            left_total = incl[left] + excl[left]
+            data_row = (event_id, left, incl[left], left_total)
             inclusion_total_counts.append(data_row)
 
     jxn_counts = pd.DataFrame(
         inclusion_total_counts,
         columns=[
             "event_id",
-            "comparison",
-            "incl_left",
-            "incl_total",
-            "excl_left",
-            "excl_total",
+            "index",
+            "inclusion",
+            "total",
         ],
     )
+    jxn_counts.dropna(axis=0)
+    jxn_counts = jxn_counts[(jxn_counts.inclusion != 0) &
+                            (jxn_counts.total != 0)]
+
+    # nrows = len(jxn_counts.incl_left)
+    # left_theta = np.random.beta(
+    #     jxn_counts.incl_left.values + 1,
+    #     (jxn_counts.left_total.values - jxn_counts.incl_left.values) + 1,
+    #     size=(2000, nrows))
+    # right_theta = np.random.beta(
+    #     jxn_counts.incl_right.values + 1,
+    #     (jxn_counts.right_total.values - jxn_counts.incl_right.values) + 1,
+    #     size=(2000, nrows))
+    # jxn_counts["diff"] = (left_theta - right_theta).mean(axis=0)
+    # jxn_counts["Pr(diff > 0)"] = ((left_theta - right_theta) > 0.0).mean(
+    #     axis=0)
+    # float_format_dict = {"diff": 3, "Pr(diff > 0)": 3}
+    # jxn_counts = jxn_counts.round(float_format_dict)
+    totals = jxn_counts.total.values
+    incl_counts = jxn_counts.inclusion.values
+    n_models = len(incl_counts)
+
     with pm.Model():
-        left = pm.BetaBinomial(
-            "left",
-            alpha=1.0,
-            beta=1.0,
-            n=jxn_counts.incl_total,
-            observed=jxn_counts.incl_left,
+        theta = pm.Beta("theta", alpha=1.3, beta=1.3, shape=n_models)
+        _ = pm.Binomial(
+            "count",
+            p=theta,
+            n=totals,
+            observed=incl_counts,
         )
-        right = pm.BetaBinomial(
-            "right",
-            alpha=1.0,
-            beta=1.0,
-            n=jxn_counts.excl_total,
-            observed=jxn_counts.excl_total,
-        )
-        pm.Deterministic("diff", left - right)
         trace = pm.sample(1000)
-        posterior = pm.sample_posterior_predictive(trace, samples=1000)
-    jxn_counts["E(dpsi)"] = posterior["diff"].mean(axis=0)
-    jxn_counts["Pr(-10 < dpsi < 10)"] = (
-        (posterior["diff"] > -10) & (posterior["diff"] < 10)
-    ).mean(axis=0)
+        pm.backends.text.dump("trace.sav")
+        posterior = pm.sample_posterior_predictive(
+            trace,
+            samples=1000,
+            var_names=["theta", "count"])
+    # jxn_counts["left_Epsi"] = (
+    #     (posterior["left"].mean(axis=0) / jxn_counts.left_total) * 100)
+    # jxn_counts["right_Epsi"] = (
+    #     (posterior["right"].mean(axis=0) / jxn_counts.right_total) * 100)
+    # jxn_counts["diff"] = (posterior["left_prob"] -
+    #                       posterior["left_prob"]).mean(axis=0)
+    # jxn_counts["Pr(diff > 0)"] = (
+    #     (posterior["left_prob"] - posterior["right_prob"]) > 0.0).mean(axis=0)
+    jxn_counts["theta"] = posterior["theta"].mean(axis=0)
+
+    jxn_counts.to_csv(args.output, sep="\t", index=False)
 
 
 def main():
