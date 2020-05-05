@@ -123,7 +123,7 @@ def run_with(args):
     n_models = len(incl_counts)
 
     with pm.Model():
-        theta = pm.Beta("theta", alpha=1.3, beta=1.3, shape=n_models)
+        theta = pm.Beta("theta", alpha=1.0, beta=1.0, shape=n_models)
         _ = pm.Binomial(
             "count",
             p=theta,
@@ -131,7 +131,7 @@ def run_with(args):
             observed=incl_counts,
         )
         trace = pm.sample(1000)
-        pm.backends.text.dump("trace.sav")
+        # pm.backends.text.dump("trace.sav")
         posterior = pm.sample_posterior_predictive(
             trace,
             samples=1000,
