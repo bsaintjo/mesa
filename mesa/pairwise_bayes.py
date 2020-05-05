@@ -130,19 +130,21 @@ def run_with(args):
     n_models = len(incl_counts)
 
     with pm.Model():
-        theta = pm.Beta("theta", alpha=1.0, beta=1.0, shape=n_models)
+        # theta = pm.Beta("theta", alpha=1.0, beta=1.0, shape=n_models)
+        theta = pm.Normal("theta", mu=0.0, sd=1.5, shape=n_models)
+        prob = pm.Deterministic("prob", pm.invlogit(theta))
         _ = pm.Binomial(
             "count",
-            p=theta,
+            p=prob,
             n=totals,
             observed=incl_counts,
         )
-        trace = pm.sample(cores=n_cpus)
+        trace = pm.sample(chains=4, cores=n_cpus)
         # pm.backends.text.dump("trace.sav")
         posterior = pm.sample_posterior_predictive(
             trace,
             samples=2000,
-            var_names=["theta"])
+            var_names=["prob"])
     # jxn_counts["left_Epsi"] = (
     #     (posterior["left"].mean(axis=0) / jxn_counts.left_total) * 100)
     # jxn_counts["right_Epsi"] = (
