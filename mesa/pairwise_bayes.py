@@ -109,7 +109,8 @@ def run_with(args):
     )
     jxn_counts.dropna(axis=0)
     jxn_counts = jxn_counts[(jxn_counts.inclusion != 0)
-                            & (jxn_counts.total != 0)]
+                            & (jxn_counts.total != 0)
+                            & (jxn_counts.inclusion < 3000)]
 
     # nrows = len(jxn_counts.incl_left)
     # left_theta = np.random.beta(
