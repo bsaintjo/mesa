@@ -52,6 +52,12 @@ def add_parser(parser):
                         "--output",
                         required=True,
                         help="Output file name")
+    parser.add_argument("-j",
+                        "--n_cpus",
+                        required=False,
+                        default=None,
+                        type=int,
+                        help="Number of CPU cores, by default uses all cores")
 
 
 def run_with(args):
@@ -101,8 +107,8 @@ def run_with(args):
         ],
     )
     jxn_counts.dropna(axis=0)
-    jxn_counts = jxn_counts[(jxn_counts.inclusion != 0) &
-                            (jxn_counts.total != 0)]
+    jxn_counts = jxn_counts[(jxn_counts.inclusion != 0)
+                            & (jxn_counts.total != 0)]
 
     # nrows = len(jxn_counts.incl_left)
     # left_theta = np.random.beta(
@@ -130,13 +136,12 @@ def run_with(args):
             n=totals,
             observed=incl_counts,
         )
-        fit = pm.fit(10000, method="advi")
-        posterior = fit.sample(5000)
+        trace = pm.sample()
         # pm.backends.text.dump("trace.sav")
-        # posterior = pm.sample_posterior_predictive(
-        #     trace,
-        #     samples=1000,
-        #     var_names=["theta", "count"])
+        posterior = pm.sample_posterior_predictive(
+            trace,
+            samples=2000,
+            var_names=["theta"])
     # jxn_counts["left_Epsi"] = (
     #     (posterior["left"].mean(axis=0) / jxn_counts.left_total) * 100)
     # jxn_counts["right_Epsi"] = (
@@ -144,7 +149,7 @@ def run_with(args):
     # jxn_counts["diff"] = (posterior["left_prob"] -
     #                       posterior["left_prob"]).mean(axis=0)
     # jxn_counts["Pr(diff > 0)"] = (
-    #     (posterior["left_prob"] - posterior["right_prob"]) > 0.0).mean(axis=0)
+    #    (posterior["left_prob"] - posterior["right_prob"]) > 0.0).mean(axis=0)
     jxn_counts["theta"] = posterior["theta"].mean(axis=0)
 
     jxn_counts.to_csv(args.output, sep="\t", index=False)
