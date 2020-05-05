@@ -130,12 +130,13 @@ def run_with(args):
             n=totals,
             observed=incl_counts,
         )
-        trace = pm.sample(1000)
+        fit = pm.fit(10000, method="advi")
+        posterior = fit.sample(5000)
         # pm.backends.text.dump("trace.sav")
-        posterior = pm.sample_posterior_predictive(
-            trace,
-            samples=1000,
-            var_names=["theta", "count"])
+        # posterior = pm.sample_posterior_predictive(
+        #     trace,
+        #     samples=1000,
+        #     var_names=["theta", "count"])
     # jxn_counts["left_Epsi"] = (
     #     (posterior["left"].mean(axis=0) / jxn_counts.left_total) * 100)
     # jxn_counts["right_Epsi"] = (
