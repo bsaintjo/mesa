@@ -63,6 +63,7 @@ def add_parser(parser):
 def run_with(args):
     pmesa = args.inclusionMESA
     cmesa = args.clusters
+    n_cpus = args.n_cpus
 
     # load psi
     data = np.load(pmesa)
@@ -136,7 +137,7 @@ def run_with(args):
             n=totals,
             observed=incl_counts,
         )
-        trace = pm.sample()
+        trace = pm.sample(cores=n_cpus)
         # pm.backends.text.dump("trace.sav")
         posterior = pm.sample_posterior_predictive(
             trace,
