@@ -131,7 +131,9 @@ def run_with(args):
 
     with pm.Model():
         # theta = pm.Beta("theta", alpha=1.0, beta=1.0, shape=n_models)
-        theta = pm.Normal("theta", mu=0.0, sd=1.5, shape=n_models)
+        theta_bar = pm.Normal("theta_bar", mu=0.0, sd=1.5)
+        sigma = pm.Exponential("sigma", lam=1)
+        theta = pm.Normal("theta", mu=theta_bar, sd=sigma, shape=n_models)
         prob = pm.Deterministic("prob", pm.invlogit(theta))
         _ = pm.Binomial(
             "count",
