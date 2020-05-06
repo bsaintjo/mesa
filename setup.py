@@ -156,6 +156,7 @@ setup(
             "tqdm",
             "pybedtools",
             "scipy",
+            "arviz",
             "statsmodels",
             "scikit-learn",
             "matplotlib",
