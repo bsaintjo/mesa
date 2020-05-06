@@ -131,23 +131,26 @@ def run_with(args):
     n_models = len(incl_counts)
 
     with pm.Model():
-        # theta = pm.Beta("theta", alpha=1.0, beta=1.0, shape=n_models)
-        theta_bar = pm.Normal("theta_bar", mu=0.0, sd=1.5)
-        sigma = pm.Exponential("sigma", lam=1)
-        theta = pm.Normal("theta", mu=theta_bar, sd=sigma, shape=n_models)
-        prob = pm.Deterministic("prob", pm.invlogit(theta))
+        theta = pm.Beta("theta", alpha=1.0, beta=1.0, shape=n_models)
+        # theta_bar = pm.Normal("theta_bar", mu=0.0, sd=1.5)
+        # sigma = pm.Exponential("sigma", lam=1)
+        # theta = pm.Normal("theta", mu=theta_bar, sd=sigma, shape=n_models)
+        # prob = pm.Deterministic("prob", pm.invlogit(theta))
         _ = pm.Binomial(
             "count",
-            p=prob,
+            p=theta,
             n=totals,
             observed=incl_counts,
         )
-        trace = pm.sample(chains=4, cores=n_cpus)
+        trace = pm.fit(
+            20_000,
+            method="advi",
+            callbacks=[pm.variational.callbacks.CheckParametersConvergence()])
         # pm.backends.text.dump("trace.sav")
-        posterior = pm.sample_posterior_predictive(
-            trace,
-            samples=2000,
-            var_names=["prob"])
+        # posterior = pm.sample_posterior_predictive(
+        #     trace,
+        #     samples=2000,
+        #     var_names=["prob"])
     # jxn_counts["left_Epsi"] = (
     #     (posterior["left"].mean(axis=0) / jxn_counts.left_total) * 100)
     # jxn_counts["right_Epsi"] = (
@@ -156,6 +159,7 @@ def run_with(args):
     #                       posterior["left_prob"]).mean(axis=0)
     # jxn_counts["Pr(diff > 0)"] = (
     #    (posterior["left_prob"] - posterior["right_prob"]) > 0.0).mean(axis=0)
+    posterior = trace.sample(5000)
     jxn_counts["theta"] = posterior["theta"].mean(axis=0)
 
     jxn_counts.to_csv(args.output, sep="\t", index=False)
