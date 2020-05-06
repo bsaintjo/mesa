@@ -13,6 +13,7 @@ import argparse
 import numpy as np
 import pandas as pd
 import pymc3 as pm
+import tqdm
 
 
 def get_col_idx_from_arr(x, y):
@@ -84,7 +85,7 @@ def run_with(args):
     # comps_to_idx = {comp: idx for idx, comp in enumerate(comps)}
 
     inclusion_total_counts = []
-    for n, vals in enumerate(matrix):
+    for n, vals in tqdm(enumerate(matrix), desc="Loading data"):
         event_id = rows[n]
         mxes = matrix[np.isin(rows, clusters[event_id])]
 
