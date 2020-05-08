@@ -181,9 +181,8 @@ def run_with(args):
         ],
     )
     jxn_counts.dropna(axis=0)
-    jxn_counts = jxn_counts[(jxn_counts.left_count != 0)
-                            & (jxn_counts.left_total != 0)
-                            & (jxn_counts.left_count < 3000)]
+    jxn_counts = jxn_counts[(jxn_counts.left_total != 0)
+                            & (jxn_counts.right_total != 0)]
 
     if args.method == "full":
         simple_model(jxn_counts)
