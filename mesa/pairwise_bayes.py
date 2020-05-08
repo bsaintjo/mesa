@@ -45,7 +45,10 @@ def full_model(df):
     n_models = len(counts)
 
     with pm.Model():
-        theta = pm.Beta("theta", alpha=1.0, beta=1.0, shape=n_models)
+        a_bar = pm.Normal("a_bar", mu=0.0, sd=1.5)
+        sigma = pm.Exponential("sigma", lam=1)
+        alpha = pm.Normal("alpha", mu=a_bar, sd=sigma, shape=n_models)
+        theta = pm.Deterministic("theta", pm.math.invlogit(alpha))
         _ = pm.Binomial(
             "count",
             p=theta,
