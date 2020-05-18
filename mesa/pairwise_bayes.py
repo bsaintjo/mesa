@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""This script uses a Bayesian (soon-to-be) hierarchical model to perform the
+"""This script uses a Bayesian statistical model to perform the
 pairwise comparison between each sample.
 This models compute the difference of the junction counts and credible
 intervals based on a difference of beta-binomial model as mentioned in this
@@ -15,6 +15,7 @@ import pandas as pd
 import pymc3 as pm
 import arviz
 import tqdm
+import itertools
 
 
 def get_col_idx_from_arr(x, y):
@@ -36,31 +37,73 @@ def get_cluster(fname):
     return data
 
 
+def theta_differences(df, n_junctions, n_samples, posterior):
+    """Computes the posterior distribution for the delta PSI for every
+    intron/junction and for every pairwise combination of samples."""
+    combinations = list(itertools.combinations(range(n_samples)))
+    junctions = list(range(n_junctions))
+    for jxn in junctions:
+        idxs = [
+            df[(df.jxn == jxn) & (df.idx == idx)] for idx in range(n_samples)
+        ]
+        for (left, right) in combinations:
+            left_idx = idxs[left]
+            right_idx = idxs[right]
+            theta_diff = posterior[left_idx] - posterior[right_idx]
+
+
 def full_model(df):
     """Applies an Bayesian (multilevel) model to analyze contingency tables.
     Takes a pandas DataFrame that contains the count and total data for every
     comparison."""
-    totals = df.left_total.values
-    counts = df.left_count.values
-    n_models = len(counts)
+    left_totals = df.left_total.values
+    left_counts = df.left_count.values
+    right_totals = df.right_total.values
+    right_counts = df.right_count.values
+    n_models = len(left_counts)
 
     with pm.Model():
         a_bar = pm.Normal("a_bar", mu=0.0, sd=1.5)
         sigma = pm.Exponential("sigma", lam=1)
-        alpha = pm.Normal("alpha", mu=a_bar, sd=sigma, shape=n_models)
-        theta = pm.Deterministic("theta", pm.math.invlogit(alpha))
+
+        left_alpha = pm.Normal("left_alpha",
+                               mu=a_bar,
+                               sd=sigma,
+                               shape=n_models)
+        right_alpha = pm.Normal("right_alpha",
+                                mu=a_bar,
+                                sd=sigma,
+                                shape=n_models)
+
+        left_theta = pm.Deterministic("left_theta",
+                                      pm.math.invlogit(left_alpha))
+        right_theta = pm.Deterministic("right_theta",
+                                       pm.math.invlogit(right_alpha))
+
         _ = pm.Binomial(
-            "count",
-            p=theta,
-            n=totals,
-            observed=counts,
+            "left_count",
+            p=left_theta,
+            n=left_totals,
+            observed=left_counts,
+        )
+        _ = pm.Binomial(
+            "right_count",
+            p=right_theta,
+            n=right_totals,
+            observed=right_counts,
         )
         trace = pm.fit(
-            20_000,
+            30_000,
             method="advi",
             callbacks=[pm.variational.callbacks.CheckParametersConvergence()])
     posterior = trace.sample(5000)
-    df["diff"] = posterior["theta"].mean(axis=0)
+
+    theta_diff = posterior["left_theta"] - posterior["right_theta"]
+    df["diff"] = theta_diff.mean(axis=0)
+    diff_hpd = arviz.hpd(theta_diff, credible_interval=0.89)
+    df["hpd_05.5"] = diff_hpd[:, 0]
+    df["hpd_94.5"] = diff_hpd[:, 1]
+    df["Pr(|diff|<0.2)"] = (np.absolute(theta_diff) < 0.2).mean(axis=0)
 
 
 def simple_model(df):
@@ -89,13 +132,6 @@ def simple_model(df):
     df["hpd_94.5"] = diff_hpd[:, 1]
     df["Pr(|diff|<0.2)"] = (np.absolute(left_theta - right_theta) < 0.2).mean(
         axis=0)
-    float_format_dict = {
-        "diff": 3,
-        "Pr(|diff|<0)": 3,
-        "hpd_05.5": 3,
-        "hpd_94.5": 3
-    }
-    df = df.round(float_format_dict)
 
 
 def add_parser(parser):
@@ -124,8 +160,7 @@ def add_parser(parser):
         help="(default: simple) Method to use for statistical modeling, simple"
         " is more efficient for large datasets, full applies a more powerful"
         " but slower model (warning: full is currently experimental and not "
-        "recommended for use)"
-    )
+        "recommended for use)")
 
 
 def run_with(args):
@@ -151,7 +186,7 @@ def run_with(args):
     comps_to_idx = {comp: idx for idx, comp in enumerate(comps)}
 
     inclusion_total_counts = []
-    for n, vals in tqdm(enumerate(matrix), desc="Loading data"):
+    for n, vals in tqdm.tqdm(enumerate(matrix), desc="Loading data"):
         event_id = rows[n]
         mxes = matrix[np.isin(rows, clusters[event_id])]
 
@@ -164,7 +199,7 @@ def run_with(args):
             left_count = incl[left]
             right_count = incl[right]
             left_total = incl[left] + excl[left]
-            right_total = incl[right] + incl[right]
+            right_total = incl[right] + excl[right]
             data_row = (event_id, comp_idx, left_count, left_total,
                         right_count, right_total)
             inclusion_total_counts.append(data_row)
@@ -179,15 +214,27 @@ def run_with(args):
             "right_count",
             "right_total",
         ],
+        dtype=np.uint32,
     )
     jxn_counts.dropna(axis=0)
-    jxn_counts = jxn_counts[(jxn_counts.left_total != 0)
-                            & (jxn_counts.right_total != 0)]
+    # jxn_counts = jxn_counts[(jxn_counts.left_total != 0)
+    #                         & (jxn_counts.right_total != 0)
+    #                         & (jxn_counts.left_count != 0)
+    #                         & (jxn_counts.right_count != 0)
+    #                         ]
 
     if args.method == "full":
-        simple_model(jxn_counts)
-    else:
         full_model(jxn_counts)
+    else:
+        simple_model(jxn_counts)
+
+    float_format_dict = {
+        "diff": 3,
+        "Pr(|diff|<0.2)": 3,
+        "hpd_05.5": 3,
+        "hpd_94.5": 3
+    }
+    jxn_counts = jxn_counts.round(float_format_dict)
     jxn_counts.to_csv(args.output, sep="\t", index=False)
 
 
