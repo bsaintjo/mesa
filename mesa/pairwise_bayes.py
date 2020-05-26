@@ -12,6 +12,7 @@ test.
 import argparse
 import numpy as np
 import pandas as pd
+import pystan
 import pymc3 as pm
 import arviz
 import tqdm
@@ -52,7 +53,7 @@ def theta_differences(df, n_junctions, n_samples, posterior):
             theta_diff = posterior[left_idx] - posterior[right_idx]
 
 
-def full_model(df):
+def full_model(cols, df):
     """Applies an Bayesian (multilevel) model to analyze contingency tables.
     Takes a pandas DataFrame that contains the count and total data for every
     comparison."""
@@ -106,7 +107,7 @@ def full_model(df):
     df["Pr(|diff|<0.2)"] = (np.absolute(theta_diff) < 0.2).mean(axis=0)
 
 
-def simple_model(df):
+def simple_model(df, treatment_group, control_group):
     """Applies a simple 'bayesian' fishers test/contingency table analysis. It
     uses two beta-binomial model to get the posterior distribution of the
     probability of a given count and total. The model also adds a few relevant
@@ -118,10 +119,18 @@ def simple_model(df):
             between -0.2 and 0.2
     """
     nrows = len(df.incl_left)
-    left_theta = np.random.beta(df.left_count.values + 1,
-                                (df.left_total.values - df.left_count.values) +
-                                1,
-                                size=(1000, nrows))
+    treatment_thetas = []
+    control_thetas = []
+
+    for treatment in treatment_group:
+        # TODO Better way of indexing each count and total data
+        treatment_count = treatment + "_count"
+        treatment_total = treatment + "_total"
+        treatment_theta = np.random.beta(df[treatment_count].values + 1,
+                                    (df[treatment_total].values - df[treatment_count].values) +
+                                    1,
+                                    size=(1000, nrows))
+        treatment_thetas.append(treatment_theta)
     right_theta = np.random.beta(
         df.right_count.values + 1,
         (df.right_total.values - df.right_count.values) + 1,
@@ -152,6 +161,8 @@ def add_parser(parser):
                         "--output",
                         required=True,
                         help="Output file name")
+    parser.add_argument("--treatment", nargs='+', help="Samples part of the treatment group.")
+    parser.add_argument("--control", nargs='+', help="Samples that are part of a control set.")
     parser.add_argument(
         "-m",
         "--method",
@@ -174,49 +185,29 @@ def run_with(args):
     # table has 3 arrays, cols, rows and data
     cols, rows, matrix = data["cols"], data["rows"], data["data"]
 
-    comparisons = set()
-    for i, v in enumerate(cols):
-        for j, v in enumerate(cols):
-            if i == j:
-                continue
-            comparisons.add(tuple(sorted([i, j])))
+    counts_and_totals = []
+    for jxn, sub_jxns in clusters:
+        # Indices for the counts for every sample
+        jxn_idx = np.argwhere(cols == jxn)
 
-    # do the math
-    comps = list(comparisons)
-    comps_to_idx = {comp: idx for idx, comp in enumerate(comps)}
+        # and junctions that are mutually exclusive
+        mxe_jxn_idxs = np.argwhere(np.isin(cols, sub_jxns)).flatten()
 
-    inclusion_total_counts = []
-    for n, vals in tqdm.tqdm(enumerate(matrix), desc="Loading data"):
-        event_id = rows[n]
-        mxes = matrix[np.isin(rows, clusters[event_id])]
+        # Shapes are now (1, n_samples) and (n_mxes, n_samples) respectively
+        jxn_counts = matrix[jxn_idx]
+        mxe_jxn_counts = matrix[mxe_jxn_idxs]
 
-        incl = vals
-        excl = np.sum(mxes, axis=0)
+        # Now both are (1, n_samples)
+        mxe_jxn_totals = mxe_jxn_counts.sum(axis=0)
 
-        for i in comps:
-            comp_idx = comps_to_idx[i]
-            left, right = i
-            left_count = incl[left]
-            right_count = incl[right]
-            left_total = incl[left] + excl[left]
-            right_total = incl[right] + excl[right]
-            data_row = (event_id, comp_idx, left_count, left_total,
-                        right_count, right_total)
-            inclusion_total_counts.append(data_row)
+        jxn_counts_totals = np.concatenate([jxn_counts, mxe_jxn_totals])
+        counts_and_totals.append(jxn_counts_totals)
 
-    jxn_counts = pd.DataFrame(
-        inclusion_total_counts,
-        columns=[
-            "event_id",
-            "index",
-            "left_count",
-            "left_total",
-            "right_count",
-            "right_total",
-        ],
-        dtype=np.uint32,
-    )
-    jxn_counts.dropna(axis=0)
+    # sample_a_count, sample_b_count ... sample_a_total, sample_b_total
+    jxn_df_cols = [sample + suffix for suffix in ["_count", "_total"] for sample in cols]
+    jxn_df = pd.DataFrame(counts_and_totals, index=rows, columns=jxn_df_cols)
+
+    # jxn_df.dropna(axis=0)
     # jxn_counts = jxn_counts[(jxn_counts.left_total != 0)
     #                         & (jxn_counts.right_total != 0)
     #                         & (jxn_counts.left_count != 0)
@@ -224,9 +215,9 @@ def run_with(args):
     #                         ]
 
     if args.method == "full":
-        full_model(jxn_counts)
+        full_model(jxn_counts, args.treatment, args.control)
     else:
-        simple_model(jxn_counts)
+        simple_model(jxn_counts, args.treatment, args.control)
 
     float_format_dict = {
         "diff": 3,
